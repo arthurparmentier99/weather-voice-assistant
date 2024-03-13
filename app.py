@@ -21,6 +21,7 @@ import pyttsx3
 import requests
 import speech_recognition as sr
 import streamlit as st
+import streamlit.components.v1 as components
 
 warnings.filterwarnings('ignore')
 
@@ -31,7 +32,24 @@ def remove_after_last_brace(text):
     for i, char in enumerate(text):
         if char == '}':
             last_brace_index = i
-    return text[:last_brace_index+1]
+    json_str = text[:last_brace_index+1]
+    return json.loads(json_str)
+
+# Clean le JSON
+def clean_json(json_object,date,hour):
+    tod_h = hour.strftime('%H')
+    new_json = json_object
+    if list(json_object.values()) == ['None','None','None']:
+        return "Need to re-ask"
+    if json_object["ville"] == 'None':
+        new_json["ville"] = "Lyon"
+    
+    day_plus_five = date + dt.timedelta(days=5)
+    if json_object["heure"] < tod_h : 
+        json_object["heure"] = tod_h + 1
+    if (json_object["date"] > day_plus_five.strftime('%Y/%m/%d')) & (json_object["date"] != 'None'):        
+        new_json["date"] = day_plus_five.strftime('%Y/%m/%d')
+    return new_json
 
 def speak(text):
     engine = pyttsx3.init()
@@ -43,10 +61,15 @@ def speak(text):
     # engine.setProperty('gender', 'female')  # Voix féminine
     engine.runAndWait()
 
+tod_date = dt.date.today()
+tod_hour = dt.datetime.now()
 
 # Fonction principale
 def main():
+    st.set_page_config(page_title="Assistant Météo Streamlit", page_icon=":partly_sunny:")
+
     st.title("Assistant Météo Streamlit")
+
     st.write("Appuyez sur le bouton pour parler et écouter la réponse")
 
     ###### Reconnaissance vocale ######
@@ -72,13 +95,24 @@ def main():
             repo_id = "mistralai/Mixtral-8x7B-Instruct-v0.1"
             llm = HuggingFaceHub(repo_id=repo_id, model_kwargs={"temperature": 0.1, "max_new_tokens":500})
 
-            # Création du template
-            template = """[INST]
-        Tu dois extraire des informations de la phrase données. N'invente pas, et extrais dans un JSON le lieu et la date.
-        Aujourd'hui, nous sommes le 13/03/2024.
-        Renvoit un JSON de la forme avec le "lieu" et la "date", ainsi que les informations additionnelles dans une liste
-        ----- 
+                        # Création du template
+            temp1 = """[INST]
+        Tu dois extraire des informations de la phrase données.
 
+        N'invente pas, et extrais dans un JSON valide la VILLE et la DATE et l'HEURE. Si tu ne sait pas, met 'None'.
+        l'HEURE doit etre une heure valide.
+        Aujourd'hui, nous sommes le {0} à {1}h.
+
+        Le JSON doit avoir ce format:
+        (
+        "ville":"ville",
+        "date":"YYYY/MM/DD",
+        "heure":"HH"
+        )
+
+        ----- 
+        """.format(tod_date.strftime('%Y/%m/%d'),tod_hour.strftime('%H'))
+            temp2 = """
         Voici la requête :
             {query}
 
@@ -86,18 +120,26 @@ def main():
         JSON:
 """
 
+            templ = temp1 + temp2
+
             query = text
 
             # On instancie notre template de prompt où l'on indique que nos deux variables entrantes sont le contexte (documents) et la requête (question)
-            promp_rag = PromptTemplate(input_variables=["query"], template=template)
+            promp_rag = PromptTemplate(input_variables=["query"], template=templ)
             chain = LLMChain(prompt=promp_rag, llm=llm,verbose=False)
             response = chain.invoke({"query": query})
             answer = response["text"].split("JSON:")[1]
-            answer = remove_after_last_brace(answer)
+            print(answer)
+            data = remove_after_last_brace(answer)
+            print(data)
+
+            # On clean le JSON
+            data = clean_json(data,tod_date,tod_hour)
+            print(data)
 
             # On le place dans une variable pour indiquer que ce sera le prompt de notre retriever
-            data = json.loads(answer)
-            lieu = data["lieu"]
+            # data = json.loads(answer)
+            lieu = data["ville"]
             date = data["date"]
 
             ###### Requête API à OpenWheaterMap ######
@@ -107,7 +149,11 @@ def main():
             API_KEY = os.environ.get("OPENWEATHERMAP_API_KEY")
             CITY = lieu
 
-            url = f"{BASE_URL}&q={CITY}&appid={API_KEY}&lang=fr&units=metric"
+            # Si pas de date on récupère la météo actuelle
+            if date == "None":
+                url = f"{BASE_URL}&q={CITY}&appid={API_KEY}&lang=fr&units=metric"
+            else:
+                url = f"{BASE_URL}&q={CITY}&appid={API_KEY}&lang=fr&units=metric&dt={date}"
             response = requests.get(url).json()
 
             temp_celcius = response['main']['temp']
@@ -121,6 +167,12 @@ def main():
             sunset = response['sys']['sunset'] + response['timezone']
             sunset = dt.datetime.utcfromtimestamp(sunset).strftime('%H:%M:%S')
             description = response['weather'][0]['description']
+            icon = response['weather'][0]['icon']
+
+            image_url = f"https://openweathermap.org/img/wn/{icon}@2x.png"
+            # Afficher l'image dans Streamlit
+            st.image(image_url, caption=f"{description}")
+
 
             ###### Nouveau prompt pour le retriever ######
             st.write("Préparation de Miss Météo...")
