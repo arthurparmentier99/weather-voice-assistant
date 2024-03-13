@@ -12,18 +12,18 @@ import pandas as pd
 from langchain.chains import LLMChain, RetrievalQA
 # from langchain.embeddings import HuggingFaceEmbeddings
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.llms import HuggingFaceEndpoint, HuggingFaceHub
+from langchain_community.llms import HuggingFaceHub
+from langchain.llms import HuggingFaceEndpoint
 from langchain.prompts import PromptTemplate
-from langchain.vectorstores import Chroma
-
-warnings.filterwarnings('ignore')
-# enlever les warnings
+# from langchain.vectorstores import Chroma
+from langchain_community.vectorstores import Chroma
 
 import pyttsx3
 import requests
 import speech_recognition as sr
 import streamlit as st
 
+warnings.filterwarnings('ignore')
 
 def speak(text):
     engine = pyttsx3.init()
@@ -38,7 +38,7 @@ def speak(text):
 
 # Fonction principale
 def main():
-    st.title("Assistant Vocal Streamlit")
+    st.title("Assistant Météo Streamlit")
     st.write("Appuyez sur le bouton pour parler et écouter la réponse")
 
     ###### Reconnaissance vocale ######
@@ -78,7 +78,7 @@ def main():
         JSON:
 """
 
-            query = text + "?"
+            query = text
 
             # On instancie notre template de prompt où l'on indique que nos deux variables entrantes sont le contexte (documents) et la requête (question)
             promp_rag = PromptTemplate(input_variables=["query"], template=template)
@@ -93,7 +93,7 @@ def main():
 
             ###### Requête API à OpenWheaterMap ######
             BASE_URL = "https://api.openweathermap.org/data/2.5/weather?"
-            API_KEY = "14cb4dc2001646ba22927a82b5f91611"
+            API_KEY = os.environ.get("OPENWEATHERMAP_API_KEY")
             CITY = lieu
 
             url = f"{BASE_URL}&q={CITY}&appid={API_KEY}&lang=fr&units=metric"
