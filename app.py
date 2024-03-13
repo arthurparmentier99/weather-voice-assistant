@@ -101,6 +101,8 @@ def main():
             date = data["date"]
 
             ###### Requête API à OpenWheaterMap ######
+            st.write("Récupération de la météo en cours...")
+
             BASE_URL = "https://api.openweathermap.org/data/2.5/weather?"
             API_KEY = os.environ.get("OPENWEATHERMAP_API_KEY")
             CITY = lieu
@@ -121,6 +123,7 @@ def main():
             description = response['weather'][0]['description']
 
             ###### Nouveau prompt pour le retriever ######
+            st.write("Préparation de Miss Météo...")
             template = """[INST]
         Présente moi les informations météorologiques comme si tu était un présentateur météo
         ----- 
