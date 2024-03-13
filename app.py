@@ -12,8 +12,7 @@ import pandas as pd
 from langchain.chains import LLMChain, RetrievalQA
 # from langchain.embeddings import HuggingFaceEmbeddings
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.llms import HuggingFaceHub
-from langchain.llms import HuggingFaceEndpoint
+from langchain_community.llms import HuggingFaceHub, HuggingFaceEndpoint
 from langchain.prompts import PromptTemplate
 # from langchain.vectorstores import Chroma
 from langchain_community.vectorstores import Chroma
@@ -24,6 +23,15 @@ import speech_recognition as sr
 import streamlit as st
 
 warnings.filterwarnings('ignore')
+
+def remove_after_last_brace(text):
+    # Index de la dernière accolade fermante
+    last_brace_index = -1
+
+    for i, char in enumerate(text):
+        if char == '}':
+            last_brace_index = i
+    return text[:last_brace_index+1]
 
 def speak(text):
     engine = pyttsx3.init()
@@ -85,6 +93,7 @@ def main():
             chain = LLMChain(prompt=promp_rag, llm=llm,verbose=False)
             response = chain.invoke({"query": query})
             answer = response["text"].split("JSON:")[1]
+            answer = remove_after_last_brace(answer)
 
             # On le place dans une variable pour indiquer que ce sera le prompt de notre retriever
             data = json.loads(answer)
@@ -111,11 +120,36 @@ def main():
             sunset = dt.datetime.utcfromtimestamp(sunset).strftime('%H:%M:%S')
             description = response['weather'][0]['description']
 
+            ###### Nouveau prompt pour le retriever ######
+            template = """[INST]
+        Présente moi les informations météorologiques comme si tu était un présentateur météo
+        ----- 
+
+        Voici la requête :
+            {query}
+
+            [/INST]
+        JSON:
+"""
+
+            query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},sunrise:{sunrise},sunset:{sunset},description:{description}"
+
+            # On instancie notre template de prompt où l'on indique que nos deux variables entrantes sont le contexte (documents) et la requête (question)
+            promp_rag = PromptTemplate(input_variables=["query"], template=template)
+            chain = LLMChain(prompt=promp_rag, llm=llm,verbose=False)
+            response = chain.invoke({"query": query})
+            answer = response["text"].split("JSON:")[1]
+
+            # On le place dans une variable pour indiquer que ce sera le prompt de notre retriever
+            reponse_a_lire = answer.split("}")[-1]
+            reponse_a_lire = reponse_a_lire.replace("\n", "")
+            reponse_a_lire = reponse_a_lire.strip()
+
             ###### Réponse vocale ######
-            texte = f"Il fait {description} à {CITY}. La température est de {temp_celcius} degrés. Le ressenti est de {feels_like_celcius} degrés. L'humidité est de {humidity} pourcent. La vitesse du vent est de {wind_speed} mètres par seconde. Le soleil se lève à {sunrise} et se couche à {sunset}."
+            # texte = f"Il fait {description} à {CITY}. La température est de {temp_celcius} degrés. Le ressenti est de {feels_like_celcius} degrés. L'humidité est de {humidity} pourcent. La vitesse du vent est de {wind_speed} mètres par seconde. Le soleil se lève à {sunrise} et se couche à {sunset}."
 
             st.write("Traitement audio en cours...")
-            speak(texte)
+            speak(reponse_a_lire)
             st.write("Réponse audio générée avec succès")
         except Exception as e:
             st.write("Erreur : " + str(e))
