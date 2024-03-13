@@ -1,0 +1,27 @@
+Informations Nécessaire pour l'API météo : 
+	
+- Lieu (Ville, ou coordonnées, ou adresse, avec l'api Geonotium)
+- Date
+
+Complémentaires : 
+- Heures voulues
+
+ 
+
+Informations Intéressantes à récuperer API météo : 
+
+(Pour les 5 prochains jours max)
+
+- Température
+- Température ressentie
+- Pluie
+- Humidité
+etc...
+
+
+Informations pas possibles à récupérer avec API météo : 
+
+- Informations passées
+- Hourly Forecast 4 days
+- Daily Forecast 16 days
+- Climatic Forecast 30 days
