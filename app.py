@@ -51,6 +51,61 @@ def clean_json(json_object,date,hour):
         new_json["date"] = day_plus_five.strftime('%Y/%m/%d')
     return new_json
 
+def clean_json2(json_object,date,hour):
+    json_object["date"] = json_object["date"].replace('/', '-') # on remplace
+
+    tod_h = hour.strftime('%H')
+    new_json = json_object
+
+    if all(value == 'None' for value in json_object.values()):
+        return "Need to re-ask"
+    
+    if json_object["ville"] == 'None':
+        new_json["ville"] = "Lyon"
+
+    day_plus_five = date + dt.timedelta(days=5) # check +5 jours
+
+    # Check de l'heure
+    if json_object["heure"] != 'None' and json_object["heure"] < tod_h: 
+        new_json["heure"] = str(int(tod_h) + 1).zfill(2)
+    else:
+        new_json["heure"] = tod_h
+
+    # Check si l'heure est au bon format    
+    nouvelle_heure = prochain_horaire(new_json["heure"])
+    print(nouvelle_heure)
+    print(type(nouvelle_heure))
+    new_json["heure"] = nouvelle_heure
+
+    # Check de la date
+    if json_object["date"] != 'None':
+        date_from_json = dt.datetime.strptime(json_object["date"], '%Y-%m-%d').date()
+        if (date_from_json > day_plus_five) or (date_from_json < date):
+            new_json["date"] = day_plus_five.strftime('%Y-%m-%d')
+            new_json["date"] = day_plus_five.strftime('%Y-%m-%d')
+    else:
+        new_json["date"] = date.strftime('%Y-%m-%d')
+    print(new_json)
+    print("sortie")
+    return new_json
+
+def prochain_horaire(heure):
+    horaire_liste = [0, 3, 6, 9, 12, 15, 18, 21]
+
+    heure_int = int(heure)
+    # Si l'heure donnée est dans la liste, la retourner
+    if heure_int in horaire_liste:
+        return heure
+    
+    # Trouver l'heure suivante dans la liste
+    prochaine_heure = min((h for h in horaire_liste if h > heure_int), default=horaire_liste[0])
+
+    # print(prochaine_heure)
+    if prochaine_heure < 10:
+        return "0" + str(prochaine_heure)
+    else:
+        return prochaine_heure
+
 # Catégorisation de la qualité de l'air
 def categorize_pm25(value):
     if value < 20:
@@ -120,7 +175,7 @@ def main():
         Le JSON doit avoir ce format et YYYY vaudra toujours 2024:
         (
         "ville":"ville",
-        "date":"YYYY-MM-DD",
+        "date":"YYYY/MM/DD",
         "heure":"HH"
         )
 
@@ -148,7 +203,7 @@ def main():
             print(data)
 
             # On clean le JSON
-            data = clean_json(data,tod_date,tod_hour)
+            data = clean_json2(data,tod_date,tod_hour)
             print(data)
 
             # On le place dans une variable pour indiquer que ce sera le prompt de notre retriever
@@ -156,6 +211,7 @@ def main():
             lieu = data["ville"]
             date = data["date"]
             heure = data["heure"]
+            heure = str(heure)
 
             ###### Requête API à OpenWheaterMap ######
             st.write("Récupération de la météo en cours...")
@@ -183,7 +239,10 @@ def main():
             else:
                 url = f"https://api.openweathermap.org/data/2.5/forecast?q={CITY}&appid={API_KEY}&lang=fr&units=metric"
                 response = requests.get(url).json()
-                
+                print(date)
+                print(type(date))
+                print(heure)
+                print(type(heure))
                 if heure == "None" or heure is None:
                     for dictionnaire in response['list']:
                         # Récupérer la date et l'heure du dictionnaire actuel
@@ -203,11 +262,6 @@ def main():
                             icon = dictionnaire['weather'][0]['icon']
                             break
                 else:
-                    print("else")
-                    print(date)
-                    print(type(date))
-                    print(heure)
-                    print(type(heure))
                     for dictionnaire in response['list']:
                         # Récupérer la date et l'heure du dictionnaire actuel
                         dt_txt = dictionnaire['dt_txt']
@@ -244,14 +298,20 @@ def main():
             pm25_value = air_pollution['list'][0]['components']['pm2_5']
             pm25_category = categorize_pm25(pm25_value)
 
-            st.write(f"Qualité de l'air: {pm25_category}")
-
+            # Température pour le widget
             if temp_celcius > 15:
                 delta_temp = "+chaud"
             else:
                 delta_temp = "-frais"
 
-            st.metric(label="Temperature", value=temp_celcius, delta=delta_temp)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.write(f"Qualité de l'air: {pm25_category}")
+            with col2:
+                st.metric(label="Temperature", value=temp_celcius, delta=delta_temp)
+            with col3:
+                st.write("Pays:", country)
+
 
             ###### Nouveau prompt pour le retriever ######
             st.write("Préparation de Miss Météo...")
@@ -265,9 +325,7 @@ def main():
             [/INST]
         JSON:
 """
-            print(sunrise)
-            print(sunset)
-            if sunrise and sunset:
+            if sunrise is None:
                 query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},sunrise:{sunrise},sunset:{sunset},description:{description}"
             else:
                 query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},description:{description}"
