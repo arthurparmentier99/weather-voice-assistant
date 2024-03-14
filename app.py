@@ -167,7 +167,7 @@ def main():
         rate = st.slider("Vitesse de la voix", 150, 250, 200)
         volume = st.slider("Volume de la voix", 0.0, 2.0, 1.0)
 
-        col4, col5 = st.columns(2)
+        col4, col5= st.columns(2)
         with col4:
             on_text = st.toggle('Afficher la réponse de Miss Météo')
         with col5:
@@ -403,7 +403,7 @@ def main():
                 ###### Nouveau prompt pour le retriever ######
                 st.write("Préparation de Miss Météo...")
                 template = """[INST]
-            Présente moi les informations météorologiques comme si tu était un présentateur météo.
+            Présente moi les informations météorologiques comme si tu était un présentateur météo. Ne me renvoie pas de JSON que du texte.
             ----- 
 
             Voici la requête :
@@ -411,16 +411,18 @@ def main():
 
                 [/INST]
             JSON:
-    """
+    """         
+                date_query = date.replace('-', '/')
                 if sunrise != "":
-                    query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},sunrise:{sunrise},sunset:{sunset},description:{description}"
+                    query = f"date:{date_query}, température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},sunrise:{sunrise},sunset:{sunset},description:{description}"
                 else:
-                    query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},description:{description}"
+                    query = f"date:{date_query}, température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},description:{description}"
 
                 # On instancie notre template de prompt où l'on indique que nos deux variables entrantes sont le contexte (documents) et la requête (question)
                 promp_rag = PromptTemplate(input_variables=["query"], template=template)
                 chain = LLMChain(prompt=promp_rag, llm=llm,verbose=False)
                 response = chain.invoke({"query": query})
+                print(response)
                 answer = response["text"].split("JSON:")[1]
                 print(answer)
 
