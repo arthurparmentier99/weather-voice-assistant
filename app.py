@@ -63,7 +63,7 @@ def clean_json2(json_object,date,hour):
     # Check de l'heure
     if json_object["heure"] != 'None' and json_object["heure"] < tod_h: 
         new_json["heure"] = str(int(tod_h) + 1).zfill(2)
-    else:
+    elif json_object["heure"] == 'None':
         new_json["heure"] = tod_h
 
     # Check si l'heure est au bon format    
@@ -148,247 +148,268 @@ week_day = weekday[dt.date.today().weekday()]
 def main():
     st.set_page_config(page_title="Assistant Météo Streamlit", page_icon=":partly_sunny:", layout='centered')
 
-    st.title("Assistant Météo Streamlit")
+    col1, col2, col3 = st.columns([1, 6, 1])
+    with col1:
+        st.write("")
+    with col2:
+        st.title("Assistant Météo Streamlit")
 
-    st.write("Appuyez sur le bouton pour parler et écouter la réponse")
+        st.write("Appuyez sur le bouton pour parler et écouter la réponse")
 
-    ###### Reconnaissance vocale ######
-    recognizer = sr.Recognizer()
+        ###### Reconnaissance vocale ######
+        recognizer = sr.Recognizer()
 
-    if st.button("🎙️"):
-        with sr.Microphone() as source:
-            st.write("Nettoyage du bruit ambiant... Veuillez patienter!")
-            recognizer.adjust_for_ambient_noise(source, duration=1)
-            st.write("Dites quelque chose!")
-            audio = recognizer.listen(source)
-            st.write("Reconnaissance en cours.... ")
-        try:
-            text = recognizer.recognize_google(audio, language='fr-FR')
-            st.write("Vous avez dit: " + text)
-            
-            ###### Traitement de la requête ######
-            st.write("Traitement de la requête en cours...")
-            # On lit nos variables environnments avec nos clés APIs
-            from dotenv import load_dotenv, find_dotenv
-            _ = load_dotenv(find_dotenv())
-            # On récupère notre llm
-            repo_id = "mistralai/Mixtral-8x7B-Instruct-v0.1"
-            llm = HuggingFaceHub(repo_id=repo_id, model_kwargs={"temperature": 0.1, "max_new_tokens":500})
-
-                        # Création du template
-            temp1 = f"""[INST]
-        Tu dois extraire des informations de la phrase données.
-
-        N'invente pas, et extrais dans un JSON valide la VILLE et la DATE et l'HEURE. Si tu ne sait pas, met 'None'.
-        l'HEURE doit etre une heure valide.
-        Aujourd'hui, nous sommes le {tod_date.strftime('%Y/%m/%d')} à {tod_hour.strftime('%H')}h.
-
-        Le JSON doit avoir ce format et YYYY vaudra toujours 2024:
-        (
-        "ville":"ville",
-        "date":"YYYY/MM/DD",
-        "heure":"HH"
-        )
-
-        ----- 
-        """
-            temp2 = """
-        Voici la requête :
-            {query}
-
-            [/INST]
-        JSON:
-"""
-
-            templ = temp1 + temp2
-
-            query = text
-
-            # On instancie notre template de prompt où l'on indique que nos deux variables entrantes sont le contexte (documents) et la requête (question)
-            promp_rag = PromptTemplate(input_variables=["query"], template=templ)
-            chain = LLMChain(prompt=promp_rag, llm=llm,verbose=False)
-            response = chain.invoke({"query": query})
-            answer = response["text"].split("JSON:")[1]
-            print(answer)
-            data = remove_after_last_brace(answer)
-            print(data)
-
-            # On clean le JSON
-            data = clean_json2(data,tod_date,tod_hour)
-            print(data)
-
-            # On le place dans une variable pour indiquer que ce sera le prompt de notre retriever
-            # data = json.loads(answer)
-            lieu = data["ville"]
-            date = data["date"]
-            heure = data["heure"]
-            heure = str(heure)
-
-            ###### Requête API à OpenWheaterMap ######
-            st.write("Récupération de la météo en cours...")
-
-            BASE_URL = "https://api.openweathermap.org/data/2.5/weather?"
-            API_KEY = os.environ.get("OPENWEATHERMAP_API_KEY")
-            CITY = lieu
-
-            # Si pas de date on récupère la météo actuelle
-            if date == "None":
-                url = f"{BASE_URL}&q={CITY}&appid={API_KEY}&lang=fr&units=metric"
-                response = requests.get(url).json()
-                temp_celcius = response['main']['temp']
-                temp_celcius = round(temp_celcius, 0)
-                feels_like_celcius = response['main']['feels_like']
-                feels_like_celcius = round(feels_like_celcius, 0)
-                humidity = response['main']['humidity']
-                wind_speed = response['wind']['speed']
-                sunrise = response['sys']['sunrise'] + response['timezone']
-                sunrise = dt.datetime.utcfromtimestamp(sunrise).strftime('%H:%M:%S')
-                sunset = response['sys']['sunset'] + response['timezone']
-                sunset = dt.datetime.utcfromtimestamp(sunset).strftime('%H:%M:%S')
-                description = response['weather'][0]['description']
-                icon = response['weather'][0]['icon']
-            else:
-                url = f"https://api.openweathermap.org/data/2.5/forecast?q={CITY}&appid={API_KEY}&lang=fr&units=metric"
-                response = requests.get(url).json()
-                print(date)
-                print(type(date))
-                print(heure)
-                print(type(heure))
-                if heure == "None" or heure is None:
-                    for dictionnaire in response['list']:
-                        # Récupérer la date et l'heure du dictionnaire actuel
-                        dt_txt = dictionnaire['dt_txt']
-                        # Vérifier si la date et l'heure correspondent
-                        if dt_txt.startswith(date) and "18" in dt_txt:
-                            # Afficher le dictionnaire correspondant
-                            print("Dictionnaire correspondant trouvé :")
-                            print(dictionnaire)
-                            temp_celcius = dictionnaire['main']['temp']
-                            temp_celcius = round(temp_celcius, 0)
-                            feels_like_celcius = dictionnaire['main']['feels_like']
-                            feels_like_celcius = round(feels_like_celcius, 0)
-                            humidity = dictionnaire['main']['humidity']
-                            wind_speed = dictionnaire['wind']['speed']
-                            description = dictionnaire['weather'][0]['description']
-                            icon = dictionnaire['weather'][0]['icon']
-                            break
-                else:
-                    for dictionnaire in response['list']:
-                        # Récupérer la date et l'heure du dictionnaire actuel
-                        dt_txt = dictionnaire['dt_txt']
-                        print(dt_txt)
-                        # Vérifier si la date et l'heure correspondent
-                        if date in dt_txt and heure in dt_txt:
-                            # Afficher le dictionnaire correspondant
-                            print("Dictionnaire correspondant trouvé :")
-                            print(dictionnaire)
-                            temp_celcius = dictionnaire['main']['temp']
-                            temp_celcius = round(temp_celcius, 0)
-                            feels_like_celcius = dictionnaire['main']['feels_like']
-                            feels_like_celcius = round(feels_like_celcius, 0)
-                            humidity = dictionnaire['main']['humidity']
-                            wind_speed = dictionnaire['wind']['speed']
-                            description = dictionnaire['weather'][0]['description']
-                            icon = dictionnaire['weather'][0]['icon']
-                            break
-
-            image_url = f"https://openweathermap.org/img/wn/{icon}@2x.png"
-            # Afficher l'image dans Streamlit
-            st.image(image_url, caption=f"{description}")
-
-            # On cherche les coordonnées et le Pays de la ville
-            coord_url = f"http://api.openweathermap.org/geo/1.0/direct?q={CITY}&limit=1&appid={API_KEY}"
-            coord_json = requests.get(coord_url).json()
-            latitude = coord_json[0]['lat']
-            longitude = coord_json[0]['lon']
-            country = coord_json[0]['country']
-
-            # On appelle l'API pour avoir la qualité de l'air
-            pollution_url = f"http://api.openweathermap.org/data/2.5/air_pollution?lat={latitude}&lon={longitude}&appid={API_KEY}"
-            air_pollution = requests.get(pollution_url).json()
-            pm25_value = air_pollution['list'][0]['components']['pm2_5']
-            pm25_category = categorize_pm25(pm25_value)
-
-            # Température pour le widget
-            if temp_celcius > 15:
-                delta_temp = "+chaud"
-            else:
-                delta_temp = "-frais"
-
-            # col1, col2, col3 = st.columns(3)
-            # with col1:
-            #     st.write(f"Qualité de l'air: {pm25_category}")
-            # with col2:
-            #     st.metric(label="Temperature", value=temp_celcius, delta=delta_temp)
-            # with col3:
-            #     st.write("Pays:", country)
-            # Utiliser un conteneur de colonnes pour organiser les informations
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.subheader("🌡️ Température")
-                st.write(f"{temp_celcius}°C")
-
-                st.subheader("❄️ Ressenti")
-                st.write(f"{feels_like_celcius}°C")
-
-                st.subheader("💧 Humidité")
-                st.write(f"{humidity}%")
-
-            with col2:
-                st.subheader("💨 Vitesse du vent")
-                st.write(f"{wind_speed} m/s")
-
-                st.subheader("🍃 Qualité de l'air")
-                st.write(pm25_category)
-
-                if sunrise is not None:
-                    st.subheader("🌅 Levé du soleil")
-                    st.write(sunrise)
+        if st.button("🎙️"):
+            with sr.Microphone() as source:
+                st.write("Nettoyage du bruit ambiant... Veuillez patienter!")
+                recognizer.adjust_for_ambient_noise(source, duration=1)
+                st.write("Dites quelque chose!")
+                audio = recognizer.listen(source)
+                st.write("Reconnaissance en cours.... ")
+            try:
+                text = recognizer.recognize_google(audio, language='fr-FR')
+                st.write("Vous avez dit: " + text)
                 
-                if sunset is not None:
-                    st.subheader("🌇 Couché du soleil")
-                    st.write(sunset)
+                ###### Traitement de la requête ######
+                st.write("Traitement de la requête en cours...")
+                # On lit nos variables environnments avec nos clés APIs
+                from dotenv import load_dotenv, find_dotenv
+                _ = load_dotenv(find_dotenv())
+                # On récupère notre llm
+                repo_id = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+                llm = HuggingFaceHub(repo_id=repo_id, model_kwargs={"temperature": 0.1, "max_new_tokens":500})
 
-            # Afficher l'icône météo avec la description en dessous
-            st.image(image_url, caption=description)
+                            # Création du template
+                temp1 = f'''[INST] Tu dois extraire la Date et l'Heure approximative indiquée dans la query.
+                        Estime la date au besoin.
+                        Si tu n'es pas sûr de l'heure ou de la date, mets 'None'.
+                        Aujourd'hui, nous sommes le {week_day} {tod_date.strftime('%Y/%m/%d')} à {tod_hour.strftime('%H')} h.
+                        Le matin commence à 9 h, l'après-midi commence à 15 h et le soir à 19 h. 
+                        Le JSON doit avoir ce format:
+                        "date":"%Y/%m/%d",
+                        "heure":"HH"
 
-            ###### Nouveau prompt pour le retriever ######
-            st.write("Préparation de Miss Météo...")
-            template = """[INST]
-        Présente moi les informations météorologiques comme si tu était un présentateur météo
-        ----- 
+                        ----- 
+                        '''
+                temp2 = """
+                        Voici la query :
+                            {query}
 
-        Voici la requête :
-            {query}
+                            [/INST]
+                        Reponse_:
+                        """
+                templ_1 = temp1 + temp2
+                query = text
 
-            [/INST]
-        JSON:
-"""
-            if sunrise is not None:
-                query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},sunrise:{sunrise},sunset:{sunset},description:{description}"
-            else:
-                query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},description:{description}"
+                # On instancie notre template de prompt où l'on indique que nos deux variables entrantes sont le contexte (documents) et la requête (question)
+                promp_rag = PromptTemplate(input_variables=["query"], template=templ_1)
+                chain = LLMChain(prompt=promp_rag, llm=llm,verbose=False)
+                response = chain.invoke({"query": query})
+                answer = response["text"].split("Reponse_:")[1]
+                json_fin = remove_after_last_brace(answer)
 
-            # On instancie notre template de prompt où l'on indique que nos deux variables entrantes sont le contexte (documents) et la requête (question)
-            promp_rag = PromptTemplate(input_variables=["query"], template=template)
-            chain = LLMChain(prompt=promp_rag, llm=llm,verbose=False)
-            response = chain.invoke({"query": query})
-            answer = response["text"].split("JSON:")[1]
+                template_2 = """[INST]
+                                Voici un Json :
+                                {json}
+                                Extrait l'information de la VILLE de la QUERY et ajoute le à ce JSON. ("ville":). Si tu ne sait pas, met "None".
+                                Renvois le JSON avec ce format : {{"date":, "heure":, "ville":}}.
+                                Pas besoin d'explication.
+                                ----- 
+                                Voici la query :
+                                {query}
 
-            # On le place dans une variable pour indiquer que ce sera le prompt de notre retriever
-            reponse_a_lire = answer.split("}")[-1]
-            reponse_a_lire = reponse_a_lire.replace("\n", "")
-            reponse_a_lire = reponse_a_lire.strip()
+                                [/INST]
+                                Reponse_:
+                                """
 
-            ###### Réponse vocale ######
-            # texte = f"Il fait {description} à {CITY}. La température est de {temp_celcius} degrés. Le ressenti est de {feels_like_celcius} degrés. L'humidité est de {humidity} pourcent. La vitesse du vent est de {wind_speed} mètres par seconde. Le soleil se lève à {sunrise} et se couche à {sunset}."
+                # On le place dans une variable pour indiquer que ce sera le prompt de notre retriever
+                promp_rag_2 = PromptTemplate(input_variables=["query"], template=template_2)
+                chain_2 = LLMChain(prompt=promp_rag_2, llm=llm,verbose=False)
+                response_2 = chain_2.invoke({"query": query,"json":json_fin})
+                answer_2 = response_2["text"].split("Reponse_:")[1]
+                data = premier_json(answer_2)
 
-            st.write("Traitement audio en cours...")
-            speak(reponse_a_lire)
-            st.write("Réponse audio générée avec succès")
-        except Exception as e:
-            st.write("Erreur : " + str(e))
+                print(data)
+
+                # On clean le JSON
+                data = clean_json2(data,tod_date,tod_hour)
+                print(data)
+
+                # On le place dans une variable pour indiquer que ce sera le prompt de notre retriever
+                # data = json.loads(answer)
+                lieu = data["ville"]
+                date = data["date"]
+                heure = data["heure"]
+                heure = str(heure)
+
+                ###### Requête API à OpenWheaterMap ######
+                st.write("Récupération de la météo en cours...")
+
+                BASE_URL = "https://api.openweathermap.org/data/2.5/weather?"
+                API_KEY = os.environ.get("OPENWEATHERMAP_API_KEY")
+                CITY = lieu
+
+                # Si pas de date on récupère la météo actuelle
+                if date == "None":
+                    url = f"{BASE_URL}&q={CITY}&appid={API_KEY}&lang=fr&units=metric"
+                    response = requests.get(url).json()
+                    temp_celcius = response['main']['temp']
+                    temp_celcius = round(temp_celcius, 0)
+                    feels_like_celcius = response['main']['feels_like']
+                    feels_like_celcius = round(feels_like_celcius, 0)
+                    humidity = response['main']['humidity']
+                    wind_speed = response['wind']['speed']
+                    sunrise = response['sys']['sunrise'] + response['timezone']
+                    sunrise = dt.datetime.utcfromtimestamp(sunrise).strftime('%H:%M:%S')
+                    sunset = response['sys']['sunset'] + response['timezone']
+                    sunset = dt.datetime.utcfromtimestamp(sunset).strftime('%H:%M:%S')
+                    description = response['weather'][0]['description']
+                    icon = response['weather'][0]['icon']
+                else:
+                    url = f"https://api.openweathermap.org/data/2.5/forecast?q={CITY}&appid={API_KEY}&lang=fr&units=metric"
+                    response = requests.get(url).json()
+                    print(date)
+                    print(type(date))
+                    print(heure)
+                    print(type(heure))
+                    if heure == "None" or heure is None:
+                        for dictionnaire in response['list']:
+                            # Récupérer la date et l'heure du dictionnaire actuel
+                            dt_txt = dictionnaire['dt_txt']
+                            # Vérifier si la date et l'heure correspondent
+                            if dt_txt.startswith(date) and "18" in dt_txt:
+                                # Afficher le dictionnaire correspondant
+                                print("Dictionnaire correspondant trouvé :")
+                                print(dictionnaire)
+                                temp_celcius = dictionnaire['main']['temp']
+                                temp_celcius = round(temp_celcius, 0)
+                                feels_like_celcius = dictionnaire['main']['feels_like']
+                                feels_like_celcius = round(feels_like_celcius, 0)
+                                humidity = dictionnaire['main']['humidity']
+                                wind_speed = dictionnaire['wind']['speed']
+                                description = dictionnaire['weather'][0]['description']
+                                icon = dictionnaire['weather'][0]['icon']
+                                break
+                    else:
+                        for dictionnaire in response['list']:
+                            # Récupérer la date et l'heure du dictionnaire actuel
+                            dt_txt = dictionnaire['dt_txt']
+                            print(dt_txt)
+                            # Vérifier si la date et l'heure correspondent
+                            if date in dt_txt and heure in dt_txt:
+                                # Afficher le dictionnaire correspondant
+                                print("Dictionnaire correspondant trouvé :")
+                                print(dictionnaire)
+                                temp_celcius = dictionnaire['main']['temp']
+                                temp_celcius = round(temp_celcius, 0)
+                                feels_like_celcius = dictionnaire['main']['feels_like']
+                                feels_like_celcius = round(feels_like_celcius, 0)
+                                humidity = dictionnaire['main']['humidity']
+                                wind_speed = dictionnaire['wind']['speed']
+                                description = dictionnaire['weather'][0]['description']
+                                icon = dictionnaire['weather'][0]['icon']
+                                break
+
+                image_url = f"https://openweathermap.org/img/wn/{icon}@2x.png"
+                # Afficher l'image dans Streamlit
+                st.image(image_url, caption=f"{description}")
+
+                # On cherche les coordonnées et le Pays de la ville
+                coord_url = f"http://api.openweathermap.org/geo/1.0/direct?q={CITY}&limit=1&appid={API_KEY}"
+                coord_json = requests.get(coord_url).json()
+                latitude = coord_json[0]['lat']
+                longitude = coord_json[0]['lon']
+                country = coord_json[0]['country']
+
+                # On appelle l'API pour avoir la qualité de l'air
+                pollution_url = f"http://api.openweathermap.org/data/2.5/air_pollution?lat={latitude}&lon={longitude}&appid={API_KEY}"
+                air_pollution = requests.get(pollution_url).json()
+                pm25_value = air_pollution['list'][0]['components']['pm2_5']
+                pm25_category = categorize_pm25(pm25_value)
+
+                # Température pour le widget
+                if temp_celcius > 15:
+                    delta_temp = "+chaud"
+                else:
+                    delta_temp = "-frais"
+
+                # col1, col2, col3 = st.columns(3)
+                # with col1:
+                #     st.write(f"Qualité de l'air: {pm25_category}")
+                # with col2:
+                #     st.metric(label="Temperature", value=temp_celcius, delta=delta_temp)
+                # with col3:
+                #     st.write("Pays:", country)
+                # Utiliser un conteneur de colonnes pour organiser les informations
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.subheader("🌡️ Température")
+                    st.write(f"{temp_celcius}°C")
+
+                    st.subheader("❄️ Ressenti")
+                    st.write(f"{feels_like_celcius}°C")
+
+                    st.subheader("💧 Humidité")
+                    st.write(f"{humidity}%")
+
+                with col2:
+                    st.subheader("💨 Vitesse du vent")
+                    st.write(f"{wind_speed} m/s")
+
+                    st.subheader("🍃 Qualité de l'air")
+                    st.write(pm25_category)
+
+                    if sunrise is not None:
+                        st.subheader("🌅 Levé du soleil")
+                        st.write(sunrise)
+                    
+                    if sunset is not None:
+                        st.subheader("🌇 Couché du soleil")
+                        st.write(sunset)
+
+                # Afficher l'icône météo avec la description en dessous
+                st.image(image_url, caption=description)
+
+                ###### Nouveau prompt pour le retriever ######
+                st.write("Préparation de Miss Météo...")
+                template = """[INST]
+            Présente moi les informations météorologiques comme si tu était un présentateur météo
+            ----- 
+
+            Voici la requête :
+                {query}
+
+                [/INST]
+            JSON:
+    """
+                if sunrise is not None:
+                    query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},sunrise:{sunrise},sunset:{sunset},description:{description}"
+                else:
+                    query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},description:{description}"
+
+                # On instancie notre template de prompt où l'on indique que nos deux variables entrantes sont le contexte (documents) et la requête (question)
+                promp_rag = PromptTemplate(input_variables=["query"], template=template)
+                chain = LLMChain(prompt=promp_rag, llm=llm,verbose=False)
+                response = chain.invoke({"query": query})
+                answer = response["text"].split("JSON:")[1]
+
+                # On le place dans une variable pour indiquer que ce sera le prompt de notre retriever
+                reponse_a_lire = answer.split("}")[-1]
+                reponse_a_lire = reponse_a_lire.replace("\n", "")
+                reponse_a_lire = reponse_a_lire.strip()
+
+                ###### Réponse vocale ######
+                # texte = f"Il fait {description} à {CITY}. La température est de {temp_celcius} degrés. Le ressenti est de {feels_like_celcius} degrés. L'humidité est de {humidity} pourcent. La vitesse du vent est de {wind_speed} mètres par seconde. Le soleil se lève à {sunrise} et se couche à {sunset}."
+
+                st.write("Traitement audio en cours...")
+                speak(reponse_a_lire)
+                st.write("Réponse audio générée avec succès")
+            except Exception as e:
+                st.write("Erreur : " + str(e))
+
+    with col3:
+        st.write("")
 
 if __name__ == "__main__":
     main()
