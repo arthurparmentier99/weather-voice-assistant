@@ -21,7 +21,6 @@ import pyttsx3
 import requests
 import speech_recognition as sr
 import streamlit as st
-import streamlit.components.v1 as components
 
 warnings.filterwarnings('ignore')
 
@@ -47,9 +46,79 @@ def clean_json(json_object,date,hour):
     day_plus_five = date + dt.timedelta(days=5)
     if json_object["heure"] < tod_h : 
         json_object["heure"] = tod_h + 1
+    # TODO: Vérifier si "heure" est un multiple de 3
     if (json_object["date"] > day_plus_five.strftime('%Y/%m/%d')) & (json_object["date"] != 'None'):        
         new_json["date"] = day_plus_five.strftime('%Y/%m/%d')
     return new_json
+
+def clean_json2(json_object,date,hour):
+    json_object["date"] = json_object["date"].replace('/', '-') # on remplace
+
+    tod_h = hour.strftime('%H')
+    new_json = json_object
+
+    if all(value == 'None' for value in json_object.values()):
+        return "Need to re-ask"
+    
+    if json_object["ville"] == 'None':
+        new_json["ville"] = "Lyon"
+
+    day_plus_five = date + dt.timedelta(days=5) # check +5 jours
+
+    # Check de l'heure
+    if json_object["heure"] != 'None' and json_object["heure"] < tod_h: 
+        new_json["heure"] = str(int(tod_h) + 1).zfill(2)
+    else:
+        new_json["heure"] = tod_h
+
+    # Check si l'heure est au bon format    
+    nouvelle_heure = prochain_horaire(new_json["heure"])
+    print(nouvelle_heure)
+    print(type(nouvelle_heure))
+    new_json["heure"] = nouvelle_heure
+
+    # Check de la date
+    if json_object["date"] != 'None':
+        date_from_json = dt.datetime.strptime(json_object["date"], '%Y-%m-%d').date()
+        if (date_from_json > day_plus_five) or (date_from_json < date):
+            new_json["date"] = day_plus_five.strftime('%Y-%m-%d')
+            new_json["date"] = day_plus_five.strftime('%Y-%m-%d')
+    else:
+        new_json["date"] = date.strftime('%Y-%m-%d')
+    print(new_json)
+    print("sortie")
+    return new_json
+
+def prochain_horaire(heure):
+    horaire_liste = [0, 3, 6, 9, 12, 15, 18, 21]
+
+    heure_int = int(heure)
+    # Si l'heure donnée est dans la liste, la retourner
+    if heure_int in horaire_liste:
+        return heure
+    
+    # Trouver l'heure suivante dans la liste
+    prochaine_heure = min((h for h in horaire_liste if h > heure_int), default=horaire_liste[0])
+
+    # print(prochaine_heure)
+    if prochaine_heure < 10:
+        return "0" + str(prochaine_heure)
+    else:
+        return prochaine_heure
+
+# Catégorisation de la qualité de l'air
+def categorize_pm25(value):
+    if value < 20:
+        return 'Bonne'
+    elif 20 <= value < 50:
+        return 'Correct'
+    elif 50 <= value < 100:
+        return 'Modérée'
+    elif 100 <= value < 200:
+        return 'Faible'
+    else:
+        return 'Mauvaise'
+
 
 def speak(text):
     engine = pyttsx3.init()
@@ -96,14 +165,14 @@ def main():
             llm = HuggingFaceHub(repo_id=repo_id, model_kwargs={"temperature": 0.1, "max_new_tokens":500})
 
                         # Création du template
-            temp1 = """[INST]
+            temp1 = f"""[INST]
         Tu dois extraire des informations de la phrase données.
 
         N'invente pas, et extrais dans un JSON valide la VILLE et la DATE et l'HEURE. Si tu ne sait pas, met 'None'.
         l'HEURE doit etre une heure valide.
-        Aujourd'hui, nous sommes le {0} à {1}h.
+        Aujourd'hui, nous sommes le {tod_date.strftime('%Y/%m/%d')} à {tod_hour.strftime('%H')}h.
 
-        Le JSON doit avoir ce format:
+        Le JSON doit avoir ce format et YYYY vaudra toujours 2024:
         (
         "ville":"ville",
         "date":"YYYY/MM/DD",
@@ -111,7 +180,7 @@ def main():
         )
 
         ----- 
-        """.format(tod_date.strftime('%Y/%m/%d'),tod_hour.strftime('%H'))
+        """
             temp2 = """
         Voici la requête :
             {query}
@@ -134,13 +203,15 @@ def main():
             print(data)
 
             # On clean le JSON
-            data = clean_json(data,tod_date,tod_hour)
+            data = clean_json2(data,tod_date,tod_hour)
             print(data)
 
             # On le place dans une variable pour indiquer que ce sera le prompt de notre retriever
             # data = json.loads(answer)
             lieu = data["ville"]
             date = data["date"]
+            heure = data["heure"]
+            heure = str(heure)
 
             ###### Requête API à OpenWheaterMap ######
             st.write("Récupération de la météo en cours...")
@@ -152,26 +223,94 @@ def main():
             # Si pas de date on récupère la météo actuelle
             if date == "None":
                 url = f"{BASE_URL}&q={CITY}&appid={API_KEY}&lang=fr&units=metric"
+                response = requests.get(url).json()
+                temp_celcius = response['main']['temp']
+                temp_celcius = round(temp_celcius, 0)
+                feels_like_celcius = response['main']['feels_like']
+                feels_like_celcius = round(feels_like_celcius, 0)
+                humidity = response['main']['humidity']
+                wind_speed = response['wind']['speed']
+                sunrise = response['sys']['sunrise'] + response['timezone']
+                sunrise = dt.datetime.utcfromtimestamp(sunrise).strftime('%H:%M:%S')
+                sunset = response['sys']['sunset'] + response['timezone']
+                sunset = dt.datetime.utcfromtimestamp(sunset).strftime('%H:%M:%S')
+                description = response['weather'][0]['description']
+                icon = response['weather'][0]['icon']
             else:
-                url = f"{BASE_URL}&q={CITY}&appid={API_KEY}&lang=fr&units=metric&dt={date}"
-            response = requests.get(url).json()
-
-            temp_celcius = response['main']['temp']
-            temp_celcius = round(temp_celcius, 0)
-            feels_like_celcius = response['main']['feels_like']
-            feels_like_celcius = round(feels_like_celcius, 0)
-            humidity = response['main']['humidity']
-            wind_speed = response['wind']['speed']
-            sunrise = response['sys']['sunrise'] + response['timezone']
-            sunrise = dt.datetime.utcfromtimestamp(sunrise).strftime('%H:%M:%S')
-            sunset = response['sys']['sunset'] + response['timezone']
-            sunset = dt.datetime.utcfromtimestamp(sunset).strftime('%H:%M:%S')
-            description = response['weather'][0]['description']
-            icon = response['weather'][0]['icon']
+                url = f"https://api.openweathermap.org/data/2.5/forecast?q={CITY}&appid={API_KEY}&lang=fr&units=metric"
+                response = requests.get(url).json()
+                print(date)
+                print(type(date))
+                print(heure)
+                print(type(heure))
+                if heure == "None" or heure is None:
+                    for dictionnaire in response['list']:
+                        # Récupérer la date et l'heure du dictionnaire actuel
+                        dt_txt = dictionnaire['dt_txt']
+                        # Vérifier si la date et l'heure correspondent
+                        if dt_txt.startswith(date) and "18" in dt_txt:
+                            # Afficher le dictionnaire correspondant
+                            print("Dictionnaire correspondant trouvé :")
+                            print(dictionnaire)
+                            temp_celcius = dictionnaire['main']['temp']
+                            temp_celcius = round(temp_celcius, 0)
+                            feels_like_celcius = dictionnaire['main']['feels_like']
+                            feels_like_celcius = round(feels_like_celcius, 0)
+                            humidity = dictionnaire['main']['humidity']
+                            wind_speed = dictionnaire['wind']['speed']
+                            description = dictionnaire['weather'][0]['description']
+                            icon = dictionnaire['weather'][0]['icon']
+                            break
+                else:
+                    for dictionnaire in response['list']:
+                        # Récupérer la date et l'heure du dictionnaire actuel
+                        dt_txt = dictionnaire['dt_txt']
+                        print(dt_txt)
+                        # Vérifier si la date et l'heure correspondent
+                        if date in dt_txt and heure in dt_txt:
+                            # Afficher le dictionnaire correspondant
+                            print("Dictionnaire correspondant trouvé :")
+                            print(dictionnaire)
+                            temp_celcius = dictionnaire['main']['temp']
+                            temp_celcius = round(temp_celcius, 0)
+                            feels_like_celcius = dictionnaire['main']['feels_like']
+                            feels_like_celcius = round(feels_like_celcius, 0)
+                            humidity = dictionnaire['main']['humidity']
+                            wind_speed = dictionnaire['wind']['speed']
+                            description = dictionnaire['weather'][0]['description']
+                            icon = dictionnaire['weather'][0]['icon']
+                            break
 
             image_url = f"https://openweathermap.org/img/wn/{icon}@2x.png"
             # Afficher l'image dans Streamlit
             st.image(image_url, caption=f"{description}")
+
+            # On cherche les coordonnées et le Pays de la ville
+            coord_url = f"http://api.openweathermap.org/geo/1.0/direct?q={CITY}&limit=1&appid={API_KEY}"
+            coord_json = requests.get(coord_url).json()
+            latitude = coord_json[0]['lat']
+            longitude = coord_json[0]['lon']
+            country = coord_json[0]['country']
+
+            # On appelle l'API pour avoir la qualité de l'air
+            pollution_url = f"http://api.openweathermap.org/data/2.5/air_pollution?lat={latitude}&lon={longitude}&appid={API_KEY}"
+            air_pollution = requests.get(pollution_url).json()
+            pm25_value = air_pollution['list'][0]['components']['pm2_5']
+            pm25_category = categorize_pm25(pm25_value)
+
+            # Température pour le widget
+            if temp_celcius > 15:
+                delta_temp = "+chaud"
+            else:
+                delta_temp = "-frais"
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.write(f"Qualité de l'air: {pm25_category}")
+            with col2:
+                st.metric(label="Temperature", value=temp_celcius, delta=delta_temp)
+            with col3:
+                st.write("Pays:", country)
 
 
             ###### Nouveau prompt pour le retriever ######
@@ -186,8 +325,10 @@ def main():
             [/INST]
         JSON:
 """
-
-            query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},sunrise:{sunrise},sunset:{sunset},description:{description}"
+            if sunrise is None:
+                query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},sunrise:{sunrise},sunset:{sunset},description:{description}"
+            else:
+                query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},description:{description}"
 
             # On instancie notre template de prompt où l'on indique que nos deux variables entrantes sont le contexte (documents) et la requête (question)
             promp_rag = PromptTemplate(input_variables=["query"], template=template)
