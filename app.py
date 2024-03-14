@@ -3,14 +3,13 @@ import os
 import warnings
 
 import json
-# On importe quelques librairies de manipulation de données
 # On importe les modules nécessaires de LangChain
 from langchain.chains import LLMChain
-# from langchain.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms import HuggingFaceHub
 from langchain.prompts import PromptTemplate
-# from langchain.vectorstores import Chroma
 
+import matplotlib.pyplot as plt
+import pycountry
 import pyttsx3
 import requests
 import speech_recognition as sr
@@ -67,7 +66,7 @@ def clean_json2(json_object,date,hour):
         new_json["heure"] = tod_h
 
     # Check si l'heure est au bon format    
-    nouvelle_heure = prochain_horaire(new_json["heure"])
+    nouvelle_heure = heure_precedente(new_json["heure"])
     print(nouvelle_heure)
     print(type(nouvelle_heure))
     new_json["heure"] = nouvelle_heure
@@ -95,7 +94,7 @@ def premier_json(chaine):
     except json.JSONDecodeError:
         return None
 
-def prochain_horaire(heure):
+def heure_precedente(heure):
     horaire_liste = [0, 3, 6, 9, 12, 15, 18, 21]
 
     heure_int = int(heure)
@@ -103,14 +102,14 @@ def prochain_horaire(heure):
     if heure_int in horaire_liste:
         return heure
     
-    # Trouver l'heure suivante dans la liste
-    prochaine_heure = min((h for h in horaire_liste if h > heure_int), default=horaire_liste[0])
+    # Trouver l'heure précédente dans la liste
+    heure_precedente = max((h for h in horaire_liste if h < heure_int), default=horaire_liste[-1])
 
-    # print(prochaine_heure)
-    if prochaine_heure < 10:
-        return "0" + str(prochaine_heure)
+    # Formater l'heure précédente avec un zéro devant si nécessaire
+    if heure_precedente < 10:
+        return "0" + str(heure_precedente)
     else:
-        return prochaine_heure
+        return heure_precedente
 
 # Catégorisation de la qualité de l'air
 def categorize_pm25(value):
@@ -125,18 +124,27 @@ def categorize_pm25(value):
     else:
         return 'Mauvaise'
 
+def code_pays_vers_nom(code_pays):
+    try:
+        pays = pycountry.countries.get(alpha_2=code_pays.upper())
+        if pays:
+            return pays.name
+        else:
+            return "Pays non trouvé"
+    except Exception as e:
+        return str(e)
 
-def speak(text):
+
+def speak(text, rate, volume):
     engine = pyttsx3.init()
-    rate = engine.getProperty('rate')
-    volume = engine.getProperty('volume')
-    pitch = engine.getProperty('pitch')
+    # rate = engine.getProperty('rate')
+    # volume = engine.getProperty('volume')
+    # pitch = engine.getProperty('pitch')
+    engine.setProperty('rate', rate)  # Vitesse de la parole (mots par minute)
+    engine.setProperty('volume', volume)   # Volume de la voix (0.0 à 1.0)
     engine.say(text)
     # Configuration des propriétés de la voix
-    # engine.setProperty('rate', 150)  # Vitesse de la parole (mots par minute)
-    # engine.setProperty('volume', 1)   # Volume de la voix (0.0 à 1.0)
     # engine.setProperty('pitch', 50)  # Hauteur de la voix
-    engine.setProperty('gender', 'male')  # Voix féminine
     engine.runAndWait()
 
 weekday = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
@@ -146,17 +154,27 @@ week_day = weekday[dt.date.today().weekday()]
 
 # Fonction principale
 def main():
-    st.set_page_config(page_title="Assistant Météo Streamlit", page_icon=":partly_sunny:", layout='centered')
+    st.set_page_config(page_title="Miss Météo", page_icon=":partly_sunny:", layout='centered')
 
     col1, col2, col3 = st.columns([1, 6, 1])
     with col1:
         st.write("")
     with col2:
-        st.title("Assistant Météo Streamlit")
+        st.title("Miss Météo SISE")
 
-        st.write("Appuyez sur le bouton pour parler et écouter la réponse")
+        ###### Paramètres de la voix ######
+        st.header("Faites glissez les sliders pour paramétrer la vitesse et le volume de la voix.")
+        rate = st.slider("Vitesse de la voix", 150, 250, 200)
+        volume = st.slider("Volume de la voix", 0.0, 2.0, 1.0)
+
+        col4, col5 = st.columns(2)
+        with col4:
+            on_text = st.toggle('Afficher la réponse de Miss Météo')
+        with col5:
+            on_graph = st.toggle('Afficher le graphique des prédictions')
 
         ###### Reconnaissance vocale ######
+        st.header("Appuyez sur le bouton pour parler et écouter la réponse")
         recognizer = sr.Recognizer()
 
         if st.button("🎙️"):
@@ -289,6 +307,8 @@ def main():
                                 wind_speed = dictionnaire['wind']['speed']
                                 description = dictionnaire['weather'][0]['description']
                                 icon = dictionnaire['weather'][0]['icon']
+                                sunrise = ""
+                                sunset = ""
                                 break
                     else:
                         for dictionnaire in response['list']:
@@ -308,7 +328,11 @@ def main():
                                 wind_speed = dictionnaire['wind']['speed']
                                 description = dictionnaire['weather'][0]['description']
                                 icon = dictionnaire['weather'][0]['icon']
+                                sunrise = ""
+                                sunset = ""
                                 break
+
+                st.header(f"Météo pour {lieu} le {date} à {heure}h00")
 
                 image_url = f"https://openweathermap.org/img/wn/{icon}@2x.png"
                 # Afficher l'image dans Streamlit
@@ -327,20 +351,6 @@ def main():
                 pm25_value = air_pollution['list'][0]['components']['pm2_5']
                 pm25_category = categorize_pm25(pm25_value)
 
-                # Température pour le widget
-                if temp_celcius > 15:
-                    delta_temp = "+chaud"
-                else:
-                    delta_temp = "-frais"
-
-                # col1, col2, col3 = st.columns(3)
-                # with col1:
-                #     st.write(f"Qualité de l'air: {pm25_category}")
-                # with col2:
-                #     st.metric(label="Temperature", value=temp_celcius, delta=delta_temp)
-                # with col3:
-                #     st.write("Pays:", country)
-                # Utiliser un conteneur de colonnes pour organiser les informations
                 col1, col2 = st.columns(2)
 
                 with col1:
@@ -353,6 +363,10 @@ def main():
                     st.subheader("💧 Humidité")
                     st.write(f"{humidity}%")
 
+                    if sunrise != "":
+                        st.subheader("🌅 Levé du soleil")
+                        st.write(sunrise)
+
                 with col2:
                     st.subheader("💨 Vitesse du vent")
                     st.write(f"{wind_speed} m/s")
@@ -360,21 +374,36 @@ def main():
                     st.subheader("🍃 Qualité de l'air")
                     st.write(pm25_category)
 
-                    if sunrise is not None:
-                        st.subheader("🌅 Levé du soleil")
-                        st.write(sunrise)
+                    st.subheader("🌍 Pays")
+                    country = code_pays_vers_nom(country)
+                    st.write(country)
                     
-                    if sunset is not None:
+                    if sunset != "":
                         st.subheader("🌇 Couché du soleil")
                         st.write(sunset)
 
-                # Afficher l'icône météo avec la description en dessous
-                st.image(image_url, caption=description)
+                if on_graph:
+                    st.write("Graphique des prévisions sur 5 jours")
+                    
+                    dates = []
+                    temperatures = []
+                    for forecast in response['list']:
+                        dates.append(forecast['dt_txt'])
+                        temperatures.append(forecast['main']['temp'])
+                    plt.plot(dates, temperatures, marker='o', linestyle='-')
+                    plt.title('Température sur 5 jours')
+                    plt.xlabel('Date')
+                    plt.ylabel('Température (°C)')
+                    plt.xticks(dates[::2], rotation=45)
+                    plt.grid(True)
+                    plt.tight_layout()
+                    # Affichage du graphique
+                    st.pyplot(plt)
 
                 ###### Nouveau prompt pour le retriever ######
                 st.write("Préparation de Miss Météo...")
                 template = """[INST]
-            Présente moi les informations météorologiques comme si tu était un présentateur météo
+            Présente moi les informations météorologiques comme si tu était un présentateur météo.
             ----- 
 
             Voici la requête :
@@ -383,7 +412,7 @@ def main():
                 [/INST]
             JSON:
     """
-                if sunrise is not None:
+                if sunrise != "":
                     query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},sunrise:{sunrise},sunset:{sunset},description:{description}"
                 else:
                     query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},description:{description}"
@@ -393,6 +422,7 @@ def main():
                 chain = LLMChain(prompt=promp_rag, llm=llm,verbose=False)
                 response = chain.invoke({"query": query})
                 answer = response["text"].split("JSON:")[1]
+                print(answer)
 
                 # On le place dans une variable pour indiquer que ce sera le prompt de notre retriever
                 reponse_a_lire = answer.split("}")[-1]
@@ -400,10 +430,12 @@ def main():
                 reponse_a_lire = reponse_a_lire.strip()
 
                 ###### Réponse vocale ######
-                # texte = f"Il fait {description} à {CITY}. La température est de {temp_celcius} degrés. Le ressenti est de {feels_like_celcius} degrés. L'humidité est de {humidity} pourcent. La vitesse du vent est de {wind_speed} mètres par seconde. Le soleil se lève à {sunrise} et se couche à {sunset}."
+                # Toggle coché ou non
+                if on_text:
+                    st.write("Traitement audio en cours...")
+                    st.write(reponse_a_lire)
 
-                st.write("Traitement audio en cours...")
-                speak(reponse_a_lire)
+                speak(reponse_a_lire, rate, volume)
                 st.write("Réponse audio générée avec succès")
             except Exception as e:
                 st.write("Erreur : " + str(e))
