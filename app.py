@@ -1,21 +1,15 @@
 import datetime as dt
 import os
-import re
 import warnings
 
-import dotenv  # Pour lire nos variables environnements avec nos APIs
 import json
 # On importe quelques librairies de manipulation de données
-import numpy as np
-import pandas as pd
 # On importe les modules nécessaires de LangChain
-from langchain.chains import LLMChain, RetrievalQA
+from langchain.chains import LLMChain
 # from langchain.embeddings import HuggingFaceEmbeddings
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.llms import HuggingFaceHub, HuggingFaceEndpoint
+from langchain_community.llms import HuggingFaceHub
 from langchain.prompts import PromptTemplate
 # from langchain.vectorstores import Chroma
-from langchain_community.vectorstores import Chroma
 
 import pyttsx3
 import requests
@@ -23,6 +17,7 @@ import speech_recognition as sr
 import streamlit as st
 
 warnings.filterwarnings('ignore')
+
 
 def remove_after_last_brace(text):
     # Index de la dernière accolade fermante
@@ -89,6 +84,17 @@ def clean_json2(json_object,date,hour):
     print("sortie")
     return new_json
 
+
+def premier_json(chaine):
+    debut_json = chaine.find('{')  # Trouver le début du premier JSON
+    fin_json = chaine.find('}', debut_json) + 1  # Trouver la fin du premier JSON
+    json_str = chaine[debut_json:fin_json]  # Extraire le JSON
+    try:
+        premier_json = json.loads(json_str)  # Charger le JSON
+        return premier_json
+    except json.JSONDecodeError:
+        return None
+
 def prochain_horaire(heure):
     horaire_liste = [0, 3, 6, 9, 12, 15, 18, 21]
 
@@ -122,20 +128,25 @@ def categorize_pm25(value):
 
 def speak(text):
     engine = pyttsx3.init()
+    rate = engine.getProperty('rate')
+    volume = engine.getProperty('volume')
+    pitch = engine.getProperty('pitch')
     engine.say(text)
     # Configuration des propriétés de la voix
     # engine.setProperty('rate', 150)  # Vitesse de la parole (mots par minute)
     # engine.setProperty('volume', 1)   # Volume de la voix (0.0 à 1.0)
     # engine.setProperty('pitch', 50)  # Hauteur de la voix
-    # engine.setProperty('gender', 'female')  # Voix féminine
+    engine.setProperty('gender', 'male')  # Voix féminine
     engine.runAndWait()
 
+weekday = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
 tod_date = dt.date.today()
 tod_hour = dt.datetime.now()
+week_day = weekday[dt.date.today().weekday()]
 
 # Fonction principale
 def main():
-    st.set_page_config(page_title="Assistant Météo Streamlit", page_icon=":partly_sunny:")
+    st.set_page_config(page_title="Assistant Météo Streamlit", page_icon=":partly_sunny:", layout='centered')
 
     st.title("Assistant Météo Streamlit")
 
@@ -144,7 +155,7 @@ def main():
     ###### Reconnaissance vocale ######
     recognizer = sr.Recognizer()
 
-    if st.button("Parler"):
+    if st.button("🎙️"):
         with sr.Microphone() as source:
             st.write("Nettoyage du bruit ambiant... Veuillez patienter!")
             recognizer.adjust_for_ambient_noise(source, duration=1)
@@ -304,14 +315,43 @@ def main():
             else:
                 delta_temp = "-frais"
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.write(f"Qualité de l'air: {pm25_category}")
-            with col2:
-                st.metric(label="Temperature", value=temp_celcius, delta=delta_temp)
-            with col3:
-                st.write("Pays:", country)
+            # col1, col2, col3 = st.columns(3)
+            # with col1:
+            #     st.write(f"Qualité de l'air: {pm25_category}")
+            # with col2:
+            #     st.metric(label="Temperature", value=temp_celcius, delta=delta_temp)
+            # with col3:
+            #     st.write("Pays:", country)
+            # Utiliser un conteneur de colonnes pour organiser les informations
+            col1, col2 = st.columns(2)
 
+            with col1:
+                st.subheader("🌡️ Température")
+                st.write(f"{temp_celcius}°C")
+
+                st.subheader("❄️ Ressenti")
+                st.write(f"{feels_like_celcius}°C")
+
+                st.subheader("💧 Humidité")
+                st.write(f"{humidity}%")
+
+            with col2:
+                st.subheader("💨 Vitesse du vent")
+                st.write(f"{wind_speed} m/s")
+
+                st.subheader("🍃 Qualité de l'air")
+                st.write(pm25_category)
+
+                if sunrise is not None:
+                    st.subheader("🌅 Levé du soleil")
+                    st.write(sunrise)
+                
+                if sunset is not None:
+                    st.subheader("🌇 Couché du soleil")
+                    st.write(sunset)
+
+            # Afficher l'icône météo avec la description en dessous
+            st.image(image_url, caption=description)
 
             ###### Nouveau prompt pour le retriever ######
             st.write("Préparation de Miss Météo...")
@@ -325,7 +365,7 @@ def main():
             [/INST]
         JSON:
 """
-            if sunrise is None:
+            if sunrise is not None:
                 query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},sunrise:{sunrise},sunset:{sunset},description:{description}"
             else:
                 query = f"température en degré celcius:{temp_celcius},température ressenti:{feels_like_celcius},humidity:{humidity},wind speed:{wind_speed},description:{description}"
